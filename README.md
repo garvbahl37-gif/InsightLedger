@@ -253,26 +253,12 @@ tests/                   16 tests: schemas, retrieval, agents, eval, api
 docs/METRICS.md          auto-generated eval report
 ```
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the design walk-through and
-the mapping to AI-engineering job descriptions.
-
-## Maps to AI-engineering JDs
-
-- *"Design & evaluate RAG systems"* → visual RAG + eval harness in CI
-- *"Multi-agent orchestration"* → LangGraph router/verifier graph with self-correction
-- *"LLMOps / reliability"* → tracing, eval gate, cost routing, Docker
-- *"Multimodal / document AI"* → retrieval + reasoning over page images, region citations
-- *"Ground outputs / reduce hallucination"* → region-level citations + abstention
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the design walk-through.
 
 ## Tech
 
 Python · pydantic · LangGraph · FastAPI · numpy · ColQwen2 (ColPali) ·
 Qdrant · Anthropic Claude · SEC EDGAR · pytest
-
-## HuggingFace tasks integrated
-
-Visual Document Retrieval · Document Question Answering · Image-Text-to-Text ·
-Object Detection / Image Segmentation (layout regions) · Image Feature Extraction
 
 ## License
 
