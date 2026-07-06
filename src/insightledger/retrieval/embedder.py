@@ -1,0 +1,186 @@
+"""Visual page embeddings with a *late-interaction* (multi-vector) interface.
+
+Both backends return a matrix of token vectors per page/query and are scored
+with MaxSim — the ColPali/ColQwen scoring function:
+
+    score(q, d) = sum_i  max_j  <q_i, d_j>
+
+- ColQwenEmbedder: real visual retrieval over rendered page images.
+- StubEmbedder: deterministic hashing of page/query tokens into unit vectors,
+  so MaxSim reduces to soft lexical late-interaction. No torch, fully runnable,
+  and it genuinely retrieves the right pages for the golden set.
+"""
+from __future__ import annotations
+
+import hashlib
+import re
+from typing import Optional, Protocol
+
+import numpy as np
+
+from ..config import Settings, get_settings
+from ..schemas import Page
+
+_DIM = 128
+_TOK = re.compile(r"[A-Za-z0-9%$.\-]+")
+
+
+def maxsim(query: np.ndarray, doc: np.ndarray) -> float:
+    """Late-interaction MaxSim between two (T, D) multi-vector matrices."""
+    if query.size == 0 or doc.size == 0:
+        return 0.0
+    sim = query @ doc.T           # (Tq, Td)
+    return float(sim.max(axis=1).sum())
+
+
+class Embedder(Protocol):
+    name: str
+    dim: int
+
+    def embed_page(self, page: Page) -> np.ndarray: ...
+    def embed_query(self, text: str) -> np.ndarray: ...
+
+
+def _hash_vec(token: str, dim: int) -> np.ndarray:
+    h = hashlib.sha256(token.encode("utf-8")).digest()
+    # expand digest deterministically to `dim` floats in [-1, 1]
+    raw = np.frombuffer((h * ((dim // len(h)) + 1))[: dim * 2], dtype=np.uint8)[:dim]
+    v = (raw.astype(np.float32) / 127.5) - 1.0
+    n = np.linalg.norm(v)
+    return v / n if n else v
+
+
+class StubEmbedder:
+    name = "stub"
+    dim = _DIM
+
+    def __init__(self) -> None:
+        self._cache: dict[str, np.ndarray] = {}
+
+    def _tokens(self, text: str) -> list[str]:
+        return [t.lower() for t in _TOK.findall(text)][:512]
+
+    def _matrix(self, tokens: list[str]) -> np.ndarray:
+        if not tokens:
+            return np.zeros((1, self.dim), dtype=np.float32)
+        rows = []
+        for t in tokens:
+            v = self._cache.get(t)
+            if v is None:
+                v = _hash_vec(t, self.dim)
+                self._cache[t] = v
+            rows.append(v)
+        return np.vstack(rows)
+
+    def embed_page(self, page: Page) -> np.ndarray:
+        text = page.text or " ".join(r.text for r in page.regions)
+        return self._matrix(self._tokens(text))
+
+    def embed_query(self, text: str) -> np.ndarray:
+        return self._matrix(self._tokens(text))
+
+
+class ColQwenEmbedder:
+    """Real ColQwen2 late-interaction embeddings over page images."""
+    name = "colqwen"
+
+    def __init__(self, settings: Optional[Settings] = None) -> None:
+        import torch  # lazy
+        from transformers import AutoProcessor  # type: ignore
+
+        try:
+            from colpali_engine.models import ColQwen2  # type: ignore
+        except Exception as exc:  # pragma: no cover
+            raise RuntimeError(
+                "colpali-engine not installed. `pip install colpali-engine`") from exc
+
+        self.s = settings or get_settings()
+        device = self.s.device
+        if device == "auto":
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.device = device
+        self.torch = torch
+        self.model = ColQwen2.from_pretrained(
+            self.s.colqwen_model,
+            torch_dtype=torch.bfloat16 if device == "cuda" else torch.float32,
+        ).to(device).eval()
+        self.processor = AutoProcessor.from_pretrained(self.s.colqwen_model)
+        self.dim = getattr(self.model.config, "dim", 128)
+
+    def _load_image(self, path: str):
+        from PIL import Image  # type: ignore
+
+        return Image.open(path).convert("RGB")
+
+    def embed_page(self, page: Page) -> np.ndarray:
+        if not page.image_path:
+            # fall back to a text embedding via the stub to stay functional
+            return StubEmbedder().embed_page(page)
+        img = self._load_image(page.image_path)
+        batch = self.processor.process_images([img]).to(self.device)
+        with self.torch.no_grad():
+            emb = self.model(**batch)
+        return emb[0].float().cpu().numpy()
+
+    def embed_query(self, text: str) -> np.ndarray:
+        batch = self.processor.process_queries([text]).to(self.device)
+        with self.torch.no_grad():
+            emb = self.model(**batch)
+        return emb[0].float().cpu().numpy()
+
+
+class HFTextEmbedder:
+    """Fully-local semantic embeddings via a small HuggingFace encoder
+    (default all-MiniLM-L6-v2, 22M params) using `transformers` directly — no
+    API, no key, no server. Mean-pooled + L2-normalized, returned as a (1, D)
+    matrix so MaxSim reduces to cosine and the store/retriever are unchanged.
+
+    Needs enough RAM + virtual-memory (pagefile) to load the model; if it can't
+    load, `get_embedder` falls back to the dependency-free stub.
+    """
+    name = "hf"
+
+    def __init__(self, settings: Optional[Settings] = None) -> None:
+        import os
+
+        self.s = settings or get_settings()
+        if self.s.hf_cache:
+            os.environ.setdefault("HF_HOME", self.s.hf_cache)
+        import torch
+        from transformers import AutoModel, AutoTokenizer
+
+        self.torch = torch
+        self.tok = AutoTokenizer.from_pretrained(self.s.embed_model)
+        self.model = AutoModel.from_pretrained(self.s.embed_model).eval()
+        self.dim = int(self.model.config.hidden_size)
+
+    def _embed(self, texts: list[str]) -> np.ndarray:
+        b = self.tok(texts, padding=True, truncation=True, max_length=384,
+                     return_tensors="pt")
+        with self.torch.no_grad():
+            out = self.model(**b)
+        mask = b["attention_mask"].unsqueeze(-1).float()
+        pooled = (out.last_hidden_state * mask).sum(1) / mask.sum(1).clamp(min=1e-9)
+        pooled = self.torch.nn.functional.normalize(pooled, p=2, dim=1)
+        return pooled.cpu().numpy().astype(np.float32)
+
+    def embed_page(self, page: Page) -> np.ndarray:
+        text = page.text or " ".join(r.text for r in page.regions)
+        return self._embed([text[:2000] or " "])   # (1, D)
+
+    def embed_query(self, text: str) -> np.ndarray:
+        return self._embed([text or " "])
+
+
+def get_embedder(settings: Optional[Settings] = None) -> Embedder:
+    s = settings or get_settings()
+    choice = s.resolve_embedder()
+    try:
+        if choice == "colqwen":
+            return ColQwenEmbedder(s)
+        if choice == "hf":
+            return HFTextEmbedder(s)
+    except Exception:
+        # missing deps / OOM / pagefile too small -> dependency-free stub
+        pass
+    return StubEmbedder()

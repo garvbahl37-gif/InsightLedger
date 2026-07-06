@@ -1,0 +1,26 @@
+name: ci
+
+on:
+  push: { branches: [main] }
+  pull_request:
+
+jobs:
+  test-and-eval-gate:
+    runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: src
+      IL_DATA_DIR: ./data
+      PYTHONIOENCODING: utf-8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: pip install -r requirements.txt pytest httpx
+      - name: Unit tests
+        run: python -m pytest -q -p no:warnings
+      - name: Regenerate golden set
+        run: python -c "from insightledger.eval.golden_set import write_golden; write_golden()"
+      # The eval gate blocks merges that regress recall / faithfulness /
+      # citation-IoU or raise the hallucination rate above threshold.
+      - name: Eval gate
+        run: python -m insightledger.cli eval --gate

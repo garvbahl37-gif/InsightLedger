@@ -1,0 +1,20 @@
+# Core runtime — runs the FULL system on the deterministic stub backends
+# (no GPU, no API keys required). Install these to run tests, the API, and eval.
+pydantic>=2.7
+numpy>=1.26
+fastapi>=0.110
+uvicorn>=0.29
+requests>=2.31
+langgraph>=0.2
+python-dotenv>=1.0
+beautifulsoup4>=4.12
+lxml>=5.0
+
+# ---- Optional real backends (uncomment / `pip install -e .[vision,qdrant,llm,ui]`) ----
+# torch>=2.2            # ColQwen visual embeddings
+# transformers>=4.44   # ColQwen + Qwen-VL
+# pillow>=10.0         # image handling
+# pdf2image>=1.17      # PDF -> page images (needs poppler on PATH)
+# qdrant-client>=1.9   # production multi-vector store
+# anthropic>=0.39      # Claude synthesis / verification
+# (the citation-highlighting web UI is built into the FastAPI service — no extra dep)

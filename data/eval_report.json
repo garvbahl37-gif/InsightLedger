@@ -1,0 +1,196 @@
+{
+  "n": 16,
+  "recall_at_k": 1.0,
+  "faithfulness": 1.0,
+  "answer_accuracy": 1.0,
+  "mean_citation_iou": 1.0,
+  "hallucination_rate": 0.0,
+  "p50_latency_ms": 13.08,
+  "p95_latency_ms": 176.75,
+  "mean_cost_usd": 0.0,
+  "total_cost_usd": 0.0,
+  "results": [
+    {
+      "item_id": "acme-revenue",
+      "recall_hit": true,
+      "faithful": true,
+      "answer_match": true,
+      "citation_iou": 1.0,
+      "hallucinated": false,
+      "latency_ms": 653.81,
+      "cost_usd": 0.0,
+      "model_used": "stub"
+    },
+    {
+      "item_id": "acme-rev-yoy",
+      "recall_hit": true,
+      "faithful": true,
+      "answer_match": true,
+      "citation_iou": 1.0,
+      "hallucinated": false,
+      "latency_ms": 10.06,
+      "cost_usd": 0.0,
+      "model_used": "stub"
+    },
+    {
+      "item_id": "acme-margin",
+      "recall_hit": true,
+      "faithful": true,
+      "answer_match": true,
+      "citation_iou": 1.0,
+      "hallucinated": false,
+      "latency_ms": 9.43,
+      "cost_usd": 0.0,
+      "model_used": "stub"
+    },
+    {
+      "item_id": "acme-segment",
+      "recall_hit": true,
+      "faithful": true,
+      "answer_match": true,
+      "citation_iou": 1.0,
+      "hallucinated": false,
+      "latency_ms": 9.39,
+      "cost_usd": 0.0,
+      "model_used": "stub"
+    },
+    {
+      "item_id": "acme-cash",
+      "recall_hit": true,
+      "faithful": true,
+      "answer_match": true,
+      "citation_iou": 1.0,
+      "hallucinated": false,
+      "latency_ms": 9.52,
+      "cost_usd": 0.0,
+      "model_used": "stub"
+    },
+    {
+      "item_id": "acme-buyback",
+      "recall_hit": true,
+      "faithful": true,
+      "answer_match": true,
+      "citation_iou": 1.0,
+      "hallucinated": false,
+      "latency_ms": 9.19,
+      "cost_usd": 0.0,
+      "model_used": "stub"
+    },
+    {
+      "item_id": "acme-risk",
+      "recall_hit": true,
+      "faithful": true,
+      "answer_match": true,
+      "citation_iou": 1.0,
+      "hallucinated": false,
+      "latency_ms": 17.73,
+      "cost_usd": 0.0,
+      "model_used": "stub"
+    },
+    {
+      "item_id": "globex-revenue",
+      "recall_hit": true,
+      "faithful": true,
+      "answer_match": true,
+      "citation_iou": 1.0,
+      "hallucinated": false,
+      "latency_ms": 14.13,
+      "cost_usd": 0.0,
+      "model_used": "stub"
+    },
+    {
+      "item_id": "globex-eps",
+      "recall_hit": true,
+      "faithful": true,
+      "answer_match": true,
+      "citation_iou": 1.0,
+      "hallucinated": false,
+      "latency_ms": 12.91,
+      "cost_usd": 0.0,
+      "model_used": "stub"
+    },
+    {
+      "item_id": "globex-software",
+      "recall_hit": true,
+      "faithful": true,
+      "answer_match": true,
+      "citation_iou": 1.0,
+      "hallucinated": false,
+      "latency_ms": 13.0,
+      "cost_usd": 0.0,
+      "model_used": "stub"
+    },
+    {
+      "item_id": "globex-debt",
+      "recall_hit": true,
+      "faithful": true,
+      "answer_match": true,
+      "citation_iou": 1.0,
+      "hallucinated": false,
+      "latency_ms": 13.45,
+      "cost_usd": 0.0,
+      "model_used": "stub"
+    },
+    {
+      "item_id": "initech-q3rev",
+      "recall_hit": true,
+      "faithful": true,
+      "answer_match": true,
+      "citation_iou": 1.0,
+      "hallucinated": false,
+      "latency_ms": 13.16,
+      "cost_usd": 0.0,
+      "model_used": "stub"
+    },
+    {
+      "item_id": "initech-fcf",
+      "recall_hit": true,
+      "faithful": true,
+      "answer_match": true,
+      "citation_iou": 1.0,
+      "hallucinated": false,
+      "latency_ms": 13.56,
+      "cost_usd": 0.0,
+      "model_used": "stub"
+    },
+    {
+      "item_id": "initech-guidance",
+      "recall_hit": true,
+      "faithful": true,
+      "answer_match": true,
+      "citation_iou": 1.0,
+      "hallucinated": false,
+      "latency_ms": 11.18,
+      "cost_usd": 0.0,
+      "model_used": "stub"
+    },
+    {
+      "item_id": "acme-ceo-pay",
+      "recall_hit": true,
+      "faithful": true,
+      "answer_match": true,
+      "citation_iou": 0.0,
+      "hallucinated": false,
+      "latency_ms": 16.27,
+      "cost_usd": 0.0,
+      "model_used": "stub"
+    },
+    {
+      "item_id": "globex-dividend",
+      "recall_hit": true,
+      "faithful": true,
+      "answer_match": true,
+      "citation_iou": 0.0,
+      "hallucinated": false,
+      "latency_ms": 16.21,
+      "cost_usd": 0.0,
+      "model_used": "stub"
+    }
+  ],
+  "backends": {
+    "embedder": "stub",
+    "vector_store": "memory",
+    "llm": "stub",
+    "graph": "langgraph"
+  }
+}

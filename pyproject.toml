@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "insightledger"
+version = "0.1.0"
+description = "Visual-first document intelligence: multi-agent visual-RAG over financial filings with region-level citations and an eval-gated pipeline."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "InsightLedger" }]
+
+# Core deps — enough to run the FULL system end-to-end with the deterministic
+# stub backends (no GPU, no API keys). Heavy/real backends live in optional
+# extras below and are imported lazily behind feature flags.
+dependencies = [
+    "pydantic>=2.7",
+    "numpy>=1.26",
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    "requests>=2.31",
+    "langgraph>=0.2",
+    "python-dotenv>=1.0",
+    "beautifulsoup4>=4.12",
+    "lxml>=5.0",
+]
+
+[project.optional-dependencies]
+# Real vision retrieval (ColQwen / ColPali late-interaction) + PDF rendering.
+vision = ["torch>=2.2", "transformers>=4.44", "pillow>=10.0", "pdf2image>=1.17"]
+# Real vector database.
+qdrant = ["qdrant-client>=1.9"]
+# Real LLM synthesis / verification.
+llm = ["anthropic>=0.39"]
+# Observability (the built-in web UI ships with the API — no extra needed).
+obs = ["ragas>=0.1", "arize-phoenix>=4.0"]
+dev = ["pytest>=8.0", "ruff>=0.5", "httpx>=0.27"]
+
+[project.scripts]
+insightledger = "insightledger.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"

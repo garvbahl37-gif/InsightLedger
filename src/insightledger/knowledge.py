@@ -1,0 +1,116 @@
+"""Corpus + index bootstrap shared by the API, CLI and eval harness.
+
+The application indexes **live SEC EDGAR filings** — no mock data. On first boot
+it ingests the seed tickers (IL_SEED_TICKERS, default AAPL,MSFT,NVDA); more can
+be added at runtime via `ingest_ticker` / the `POST /ingest` endpoint. A doc
+registry is persisted so the UI can render page text / regions for citations.
+
+(The deterministic synthetic corpus still exists, but only as a labelled test
+fixture for the eval harness — see `eval/golden_set.py`. It is never served by
+the app.)
+"""
+from __future__ import annotations
+
+import json
+from typing import Optional
+
+from .config import Settings, get_settings
+from .ingestion import EdgarClient
+from .retrieval import Indexer, Retriever
+from .schemas import Document
+
+
+def _registry_path(s: Settings):
+    return s.index_dir / "doc_registry.json"
+
+
+def save_registry(docs: list[Document], s: Optional[Settings] = None) -> None:
+    s = s or get_settings()
+    s.index_dir.mkdir(parents=True, exist_ok=True)
+    _registry_path(s).write_text(
+        json.dumps({d.doc_id: d.model_dump(mode="json") for d in docs}),
+        encoding="utf-8")
+
+
+def load_registry(s: Optional[Settings] = None) -> dict[str, Document]:
+    s = s or get_settings()
+    p = _registry_path(s)
+    if not p.exists():
+        return {}
+    raw = json.loads(p.read_text(encoding="utf-8"))
+    return {k: Document.model_validate(v) for k, v in raw.items()}
+
+
+def ingest_ticker(ticker: str, form: str = "10-K",
+                  settings: Optional[Settings] = None,
+                  retriever: Optional[Retriever] = None) -> Document:
+    """Fetch a live filing from EDGAR, index it, and register it."""
+    s = settings or get_settings()
+    s.ensure_dirs()
+    retriever = retriever or Retriever(settings=s)
+    doc = EdgarClient(s).fetch(ticker, form=form)
+    Indexer(embedder=retriever.embedder, store=retriever.store,
+            settings=s).index_documents([doc])
+    reg = load_registry(s)
+    reg[doc.doc_id] = doc
+    save_registry(list(reg.values()), s)
+    return doc
+
+
+def ingest_filing(ticker: str, accession: str, primary_doc: str, form: str,
+                  date: str, settings: Optional[Settings] = None,
+                  retriever: Optional[Retriever] = None) -> Document:
+    """Fetch + index one specific EDGAR filing (by accession) and register it."""
+    s = settings or get_settings()
+    s.ensure_dirs()
+    retriever = retriever or Retriever(settings=s)
+    doc = EdgarClient(s).fetch_specific(ticker, accession, primary_doc, form, date)
+    Indexer(embedder=retriever.embedder, store=retriever.store,
+            settings=s).index_documents([doc])
+    reg = load_registry(s)
+    reg[doc.doc_id] = doc
+    save_registry(list(reg.values()), s)
+    return doc
+
+
+def ensure_live_index(settings: Optional[Settings] = None,
+                      force: bool = False) -> Retriever:
+    """Ensure the seed filings are ingested; return a ready Retriever.
+
+    Fails soft: if EDGAR is unreachable for a ticker, it is skipped so the app
+    still starts with whatever was ingested.
+    """
+    s = settings or get_settings()
+    s.ensure_dirs()
+    retriever = Retriever(settings=s)
+    if not force and retriever.store.count() > 0 and _registry_path(s).exists():
+        return retriever
+    reg = load_registry(s)
+    have = {d.doc_id.split("-")[0] for d in reg.values()}
+    for ticker in [t.strip().upper() for t in s.seed_tickers.split(",") if t.strip()]:
+        if ticker in have:
+            continue
+        try:
+            doc = ingest_ticker(ticker, form=s.seed_form, settings=s, retriever=retriever)
+            print(f"[ingest] {ticker}: {doc.doc_id} ({len(doc.pages)} pages)")
+        except Exception as exc:  # noqa: BLE001
+            print(f"[ingest] {ticker} skipped: {exc}")
+    return retriever
+
+
+# Backwards-compatible alias used by older call sites / eval.
+def ensure_sample_index(force: bool = False,
+                        settings: Optional[Settings] = None) -> Retriever:
+    """Eval-only: index the synthetic golden-set corpus (labelled fixture)."""
+    from .ingestion import build_sample_corpus
+
+    s = settings or get_settings()
+    s.ensure_dirs()
+    retriever = Retriever(settings=s)
+    if not force and retriever.store.count() > 0 and _registry_path(s).exists():
+        return retriever
+    docs = build_sample_corpus()
+    Indexer(embedder=retriever.embedder, store=retriever.store,
+            settings=s).index_documents(docs)
+    save_registry(docs, s)
+    return retriever
