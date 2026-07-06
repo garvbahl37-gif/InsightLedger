@@ -12,8 +12,10 @@ _FAKE = {
 @pytest.fixture(autouse=True)
 def _reset_cache():
     EdgarClient._companies = None
+    EdgarClient._entities = None
     yield
     EdgarClient._companies = None
+    EdgarClient._entities = None
 
 
 def test_second_instance_resolves_ticker_after_search(monkeypatch):

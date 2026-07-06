@@ -32,7 +32,7 @@ _Premium React dashboard, running fully local (no API key) over live SEC filings
 **Grounded answer** — inline citations, highlighted evidence regions, confidence gauge, verifier donut, and retrieval chart
 ![Answer](docs/screenshots/02-answer-result.png)
 
-**Company browser** — search any of ~10k EDGAR companies and ingest any filing live
+**Company browser** — search **any** of ~1M EDGAR filers (all companies, funds, trusts) and ingest any filing live
 ![Company browser](docs/screenshots/03-company-browser.png)
 
 **⌘K command palette** — jump to a filing, ask, or ingest a company
@@ -65,8 +65,14 @@ adversarial *unanswerable* questions) — full numbers in [docs/METRICS.md](docs
 | Citation region IoU | 0.000 | **1.000** | +1.000 |
 | Hallucination rate | 0.188 | **0.000** | −0.188 |
 
-_(Reported on the deterministic stub backends so anyone can reproduce them.
-The same harness measures the ColQwen + Claude + Qdrant stack once installed.)_
+_**Reading the numbers honestly:** these are on the deterministic **stub** over a
+small, hand-built golden set whose questions are answerable from the corpus — so
+the grounded stub scores near-perfectly, and the naive text-RAG baseline (no
+region grounding, no verification, no abstention) scores 0 on faithfulness/IoU by
+construction. The point isn't "1.000 is state-of-the-art" — it's that the
+**harness, metrics, baseline comparison, and CI gate exist and are reproducible**
+(`make compare`). Point the same harness at the ColQwen + Claude + Qdrant stack,
+or at an LLM-generated eval set (`qagen`), for real-world numbers._
 
 ---
 
@@ -79,68 +85,27 @@ their deps + credentials are present. Backend selection is `auto` by default:
 ### Fully local, no API (default)
 
 Out of the box the app runs **100% on-machine — no API, no key, no external
-call**: a deterministic stub for retrieval + generation. Everything (search,
-live EDGAR ingest, the agent graph, citations, eval) works offline. For real
-*local* ML with no API, set `IL_EMBEDDER=hf` (a small HF encoder, e.g.
-all-MiniLM, gives true semantic retrieval in-process) and/or `IL_LLM=hf` (a local
-instruct model). Those need enough RAM + **virtual-memory/pagefile** and disk for
-the weights; if a model can't load, the app falls back to the stub automatically.
+call**: a deterministic, grounded stub for retrieval + generation. Everything
+(full-universe company search, live EDGAR ingest, the multi-agent graph,
+citations, eval) works with nothing configured.
 
-| Concern | Stub (default, zero-dep) | Real backend (feature-flagged) |
+| Concern | Stub (default, zero-dep) | Real backend (opt-in) |
 |---|---|---|
-| Page embeddings | hashed multi-vector + MaxSim | **MiniLM/BGE** (`hf`, local) or **ColQwen2** (visual) |
+| Page embeddings | hashed multi-vector + MaxSim | **ColQwen2** visual (local GPU) |
 | Vector store | in-process numpy MaxSim (persisted) | **Qdrant** multi-vector (MAX_SIM) |
-| LLM / VLM | grounded deterministic heuristics | **HuggingFace** local model (no key) or **Claude** |
+| LLM | grounded deterministic heuristics | **Claude** (`ANTHROPIC_API_KEY`) |
 | Graph | LangGraph if installed, else linear | **LangGraph** cycle |
-| Ingestion | synthetic SEC-style corpus | **SEC EDGAR** live filings |
+| Ingestion | synthetic fixture (eval only) | **SEC EDGAR** live filings (default) |
 
 ```bash
 insightledger backends   # -> {"embedder":"stub","vector_store":"memory","llm":"stub","graph":"langgraph"}
 ```
 
-### LLM ladder — free & keyless by default
-
-The LLM (claim extraction, verification, answer synthesis, and eval
-**QA-generation**) follows a ladder, auto-selected so a fresh clone just runs:
-
-| Tier | `IL_LLM` | Needs | Key? | For |
-|---|---|---|---|---|
-| **HF Inference** (recommended live) | `hf-api` | free `HF_TOKEN` | **free token, no GPU** | **live / deployed apps** |
-| **Claude** | `claude` | `ANTHROPIC_API_KEY` | yes (paid) | best quality |
-| **HuggingFace local** | `hf` | `torch`+`transformers` + compute | no key | offline, self-hosted GPU |
-| **Stub** (fallback) | `stub` | nothing | no | instant, deterministic demo |
-
-`IL_LLM=auto` picks **HF Inference** if `HF_TOKEN` is set, else **Claude** if a key
-is set, else the **local HF** model if `torch`+`transformers` are installed, else
-the **stub**. Any provider init failure falls back to the stub rather than crash.
-
-**For a live / deployed app → HF Inference (serverless).** HuggingFace hosts the
-model, so your app needs **no GPU, no RAM, no disk** for weights — just a free
-token. Real open models (Qwen, Llama, Mistral) do live QA + QA-generation:
-
-```bash
-# free token at https://huggingface.co/settings/tokens
-export HF_TOKEN=hf_xxx
-export IL_HF_API_MODEL="Qwen/Qwen2.5-7B-Instruct"   # or Llama-3.1-8B-Instruct
-insightledger query "What risks does management highlight?"   # runs live on HF infra
-insightledger qagen --ticker AAPL                              # live QA-generation
-```
-
-**Self-hosting the weights instead (`hf`)** runs the model in-process via
-`transformers` — needs `pip install torch transformers accelerate`, ~2–8 GB disk
-for weights (`IL_HF_CACHE` → a drive with space), and enough RAM (use
-`*-0.5B-Instruct` on small machines). GPU auto-used if present.
-
-**QA-generation** builds an eval golden set from *live* filings using the same
-local model — no key:
-
-```bash
-insightledger qagen --ticker AAPL --per-page 1   # -> data/golden/generated_qa.jsonl
-```
-
-So a cloner never needs *your* key: free on the stub, free on a local HF model,
-or their own paid key for Claude. **Never commit an API key** — `.env` is
-gitignored; `.env.example` is the template.
+**LLM tier.** `IL_LLM=auto` runs the fully-local stub by default; set
+`ANTHROPIC_API_KEY` to opt into **Claude** for production-grade generation and
+LLM-driven **QA-generation** (`insightledger qagen --ticker AAPL`). No provider
+is ever required — and any init failure falls back to the stub rather than crash.
+**Never commit an API key** — `.env` is gitignored; `.env.example` is the template.
 
 ## Quickstart
 
@@ -190,7 +155,7 @@ framer-motion** dashboard (Vite build, Inter + Lucide, served by FastAPI):
 
 - a **⌘K command palette** — jump to a filing, run a query, ingest a company, or
   toggle theme;
-- a **company browser** over the full EDGAR list (~10k companies) — search any
+- a **company browser** over the **entire EDGAR universe** (~1M filers) — search any
   company, view its **entire filing history** (10-K / 10-Q / 8-K / 20-F / proxy),
   and ingest any specific filing live;
 - a hero with **animated counters**, an **AI status bar**, and stat cards with
@@ -230,7 +195,7 @@ docker compose up --build                  # app + Qdrant
 | `GET /` | premium dashboard web UI |
 | `POST /query` | `{question, top_k?, doc_ids?}` → grounded `Answer` |
 | `POST /ingest` | `{ticker, form?, accession?}` → index the latest (or a specific) EDGAR filing |
-| `GET /tickers?q=` | search the full EDGAR company list (~10k companies) |
+| `GET /tickers?q=` | search the entire EDGAR universe (~1M filers, ticker or CIK) |
 | `GET /company?ticker=` | company profile + full filing history (browse any filing) |
 | `GET /documents` · `/documents/{id}` | corpus + page/region/section detail |
 | `GET /trace/{trace_id}` | per-request agent span trace |

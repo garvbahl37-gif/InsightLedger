@@ -87,7 +87,7 @@ export default function App() {
           <div className="sec-t"><span>Add a company</span></div>
           <CompanyPicker onSelect={setModalTicker} />
           <div style={{ fontSize: 11, color: "var(--muted)", margin: "8px 4px 6px", lineHeight: 1.5 }}>
-            Search any of ~10,000 SEC companies, browse their filings, and ingest any one live.
+            Search any of ~1M EDGAR filers (companies, funds, trusts), browse filings, and ingest any live.
           </div>
 
           <div className="sec-t"><span>Filings</span><span className="c">{filings.length}</span></div>

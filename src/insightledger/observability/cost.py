@@ -10,15 +10,9 @@ PRICING: dict[str, tuple[float, float]] = {
     "claude-opus-4-8": (5.00, 25.00),
     "claude-sonnet-5": (3.00, 15.00),
     "claude-haiku-4-5-20251001": (1.00, 5.00),
-    # stub + local open-source models are free
+    # stub / local models are free
     "stub": (0.0, 0.0),
     "stub-cheap": (0.0, 0.0),
-    "qwen2.5": (0.0, 0.0),
-    "llama3.1": (0.0, 0.0),
-    "llama3": (0.0, 0.0),
-    "mistral": (0.0, 0.0),
-    "gemma2": (0.0, 0.0),
-    "phi3": (0.0, 0.0),
 }
 
 

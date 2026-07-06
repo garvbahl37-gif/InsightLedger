@@ -129,58 +129,12 @@ class ColQwenEmbedder:
         return emb[0].float().cpu().numpy()
 
 
-class HFTextEmbedder:
-    """Fully-local semantic embeddings via a small HuggingFace encoder
-    (default all-MiniLM-L6-v2, 22M params) using `transformers` directly — no
-    API, no key, no server. Mean-pooled + L2-normalized, returned as a (1, D)
-    matrix so MaxSim reduces to cosine and the store/retriever are unchanged.
-
-    Needs enough RAM + virtual-memory (pagefile) to load the model; if it can't
-    load, `get_embedder` falls back to the dependency-free stub.
-    """
-    name = "hf"
-
-    def __init__(self, settings: Optional[Settings] = None) -> None:
-        import os
-
-        self.s = settings or get_settings()
-        if self.s.hf_cache:
-            os.environ.setdefault("HF_HOME", self.s.hf_cache)
-        import torch
-        from transformers import AutoModel, AutoTokenizer
-
-        self.torch = torch
-        self.tok = AutoTokenizer.from_pretrained(self.s.embed_model)
-        self.model = AutoModel.from_pretrained(self.s.embed_model).eval()
-        self.dim = int(self.model.config.hidden_size)
-
-    def _embed(self, texts: list[str]) -> np.ndarray:
-        b = self.tok(texts, padding=True, truncation=True, max_length=384,
-                     return_tensors="pt")
-        with self.torch.no_grad():
-            out = self.model(**b)
-        mask = b["attention_mask"].unsqueeze(-1).float()
-        pooled = (out.last_hidden_state * mask).sum(1) / mask.sum(1).clamp(min=1e-9)
-        pooled = self.torch.nn.functional.normalize(pooled, p=2, dim=1)
-        return pooled.cpu().numpy().astype(np.float32)
-
-    def embed_page(self, page: Page) -> np.ndarray:
-        text = page.text or " ".join(r.text for r in page.regions)
-        return self._embed([text[:2000] or " "])   # (1, D)
-
-    def embed_query(self, text: str) -> np.ndarray:
-        return self._embed([text or " "])
-
-
 def get_embedder(settings: Optional[Settings] = None) -> Embedder:
     s = settings or get_settings()
-    choice = s.resolve_embedder()
     try:
-        if choice == "colqwen":
+        if s.resolve_embedder() == "colqwen":
             return ColQwenEmbedder(s)
-        if choice == "hf":
-            return HFTextEmbedder(s)
     except Exception:
-        # missing deps / OOM / pagefile too small -> dependency-free stub
+        # missing deps / no GPU -> dependency-free stub (still fully local)
         pass
     return StubEmbedder()

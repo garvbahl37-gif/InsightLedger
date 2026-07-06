@@ -91,8 +91,7 @@ def _cmd_qagen(args) -> int:
     if doc is None:
         print(f"ingesting {args.ticker} from EDGAR…")
         doc = ingest_ticker(args.ticker.upper(), form=args.form)
-    print(f"generating QA from {doc.doc_id} using LLM '{s.resolve_llm()}' "
-          f"(model {s.hf_model if s.resolve_llm()=='hf' else s.resolve_llm()})…")
+    print(f"generating QA from {doc.doc_id} using LLM '{s.resolve_llm()}'…")
     items = generate_for_document(doc, per_page=args.per_page, max_pages=args.max_pages)
     path = write_generated(items)
     print(f"generated {len(items)} grounded QA pairs -> {path}")

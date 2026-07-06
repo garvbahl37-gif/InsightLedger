@@ -9,8 +9,8 @@ corpus", while staying reproducible.
 
     insightledger qagen --ticker AAPL --per-page 1
 
-Requires a generative provider (hf / claude / ollama); the deterministic stub is
-not generative, so QA generation is skipped with a clear message.
+Requires a generative provider (Claude via ANTHROPIC_API_KEY); the deterministic
+stub is not generative, so QA generation is skipped with a clear message.
 """
 from __future__ import annotations
 
@@ -47,9 +47,8 @@ def generate_for_document(doc: Document, per_page: int = 1,
     provider = get_provider(s)
     if not hasattr(provider, "complete"):
         raise RuntimeError(
-            f"QA generation needs a generative model (IL_LLM=hf-api|claude|hf); "
-            f"current backend '{provider.name}' is not generative. Set HF_TOKEN "
-            f"(hf-api) or ANTHROPIC_API_KEY (claude), or run a local hf model.")
+            f"QA generation needs a generative model (set ANTHROPIC_API_KEY for "
+            f"Claude); current backend '{provider.name}' is not generative.")
     meter = CostMeter()
     items: list[EvalItem] = []
     # prefer substantive pages (more text = better questions)

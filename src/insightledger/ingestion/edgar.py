@@ -24,6 +24,8 @@ from ..schemas import Document
 from .pipeline import build_document_from_pages
 
 _TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
+# full EDGAR universe (every entity that ever filed) — "NAME:CIK:" per line
+_CIK_LOOKUP_URL = "https://www.sec.gov/Archives/edgar/cik-lookup-data.txt"
 _SUBMISSIONS = "https://data.sec.gov/submissions/CIK{cik:010d}.json"
 _ARCHIVE = "https://www.sec.gov/Archives/edgar/data/{cik}/{acc}/{doc}"
 _TAG = re.compile(r"<[^>]+>")
@@ -35,7 +37,8 @@ _XBRL_TOK = re.compile(r"^([a-z]+:[A-Za-z]|\d{10}$|\d{4}-\d{2}-\d{2}$)")
 
 
 class EdgarClient:
-    _companies: Optional[list[dict]] = None   # class-level cache of the full list
+    _companies: Optional[list[dict]] = None   # ticker'd companies (~10k)
+    _entities: Optional[list[tuple[str, int]]] = None  # ALL EDGAR filers (name, cik)
 
     def __init__(self, settings: Optional[Settings] = None):
         self.s = settings or get_settings()
@@ -66,6 +69,35 @@ class EdgarClient:
             self._tickers = {c["ticker"]: c["cik"] for c in EdgarClient._companies}
         return EdgarClient._companies
 
+    def _load_entities(self) -> list[tuple[str, int]]:
+        """The FULL EDGAR universe (every filer, incl. those without a ticker),
+        parsed from cik-lookup-data.txt and cached to disk + class. ~800k rows."""
+        if EdgarClient._entities is not None:
+            return EdgarClient._entities
+        cache = self.s.cache_dir / "cik-lookup-data.txt"
+        try:
+            text = cache.read_text(encoding="latin-1") if cache.exists() else ""
+        except Exception:
+            text = ""
+        if not text:
+            text = self._get(_CIK_LOOKUP_URL).content.decode("latin-1")
+            try:
+                cache.parent.mkdir(parents=True, exist_ok=True)
+                cache.write_text(text, encoding="latin-1")
+            except Exception:
+                pass
+        ents: list[tuple[str, int]] = []
+        for line in text.splitlines():
+            # format: "COMPANY NAME:0000320193:"
+            i = line.rfind(":", 0, len(line) - 1)
+            if i <= 0:
+                continue
+            name, cik = line[:i], line[i + 1:].rstrip(":")
+            if cik.isdigit():
+                ents.append((name, int(cik)))
+        EdgarClient._entities = ents
+        return ents
+
     def cik_for_ticker(self, ticker: str) -> int:
         self._load_companies()
         try:
@@ -73,41 +105,74 @@ class EdgarClient:
         except (KeyError, TypeError) as exc:
             raise ValueError(f"ticker not found: {ticker}") from exc
 
+    def resolve_cik(self, identifier: str) -> tuple[int, str]:
+        """Resolve a ticker OR a raw CIK to (cik, label). `label` is the ticker
+        when known, else 'CIK{n}' — used as the document id prefix."""
+        ident = identifier.strip()
+        self._load_companies()
+        if ident.upper() in self._tickers:  # type: ignore[operator]
+            return self._tickers[ident.upper()], ident.upper()  # type: ignore[index]
+        digits = ident.upper().removeprefix("CIK")
+        if digits.isdigit():
+            return int(digits), f"CIK{int(digits)}"
+        raise ValueError(f"unknown company: {identifier}")
+
     def search_companies(self, query: str, limit: int = 12) -> list[dict]:
-        """Rank companies by relevance to a free-text query (ticker or name).
-        Powers the UI's searchable company picker."""
+        """Search the FULL EDGAR universe (ticker'd companies ranked first, then
+        every other filer by name). Non-ticker'd entities use their CIK as the
+        identifier so they can still be ingested. Powers the company picker."""
         companies = self._load_companies()
         q = query.strip().lower()
         if not q:
-            # popular large-caps as the default suggestion set
             popular = ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA",
                        "JPM", "V", "WMT", "XOM", "JNJ"]
             idx = {c["ticker"]: c for c in companies}
             return [idx[t] for t in popular if t in idx][:limit]
-        scored = []
+        scored: list[tuple[int, dict]] = []
         for c in companies:
             tk, title = c["ticker"].lower(), c["title"].lower()
             if tk == q:
-                s = 100
+                s = 200
             elif tk.startswith(q):
-                s = 80
+                s = 180
             elif title.startswith(q):
-                s = 60
+                s = 160
             elif q in tk:
-                s = 40
+                s = 140
             elif q in title:
-                s = 30 - min(20, title.index(q))  # earlier match ranks higher
+                s = 130 - min(20, title.index(q))
             else:
                 continue
             scored.append((s, c))
-        scored.sort(key=lambda x: (-x[0], len(x[1]["ticker"])))
+        seen_cik = {c["cik"] for _, c in scored}
+        # widen to the full universe when the ticker list is thin on matches.
+        # Degrades gracefully to ticker-only results if the lookup is unavailable.
+        if len(scored) < limit and len(q) >= 3:
+            try:
+                for name, cik in self._load_entities():
+                    if cik in seen_cik:
+                        continue
+                    low = name.lower()
+                    if low.startswith(q):
+                        s = 60
+                    elif q in low:
+                        s = 40 - min(20, low.index(q))
+                    else:
+                        continue
+                    scored.append((s, {"ticker": f"CIK{cik}", "title": name.title(), "cik": cik}))
+                    seen_cik.add(cik)
+                    if len(scored) > limit * 6:
+                        break
+            except Exception:
+                pass
+        scored.sort(key=lambda x: (-x[0], len(x[1]["title"])))
         return [c for _, c in scored[:limit]]
 
     # annual-report forms to try in order (US 10-K, foreign 20-F/40-F, legacy)
     _ANNUAL_FORMS = ["10-K", "10-K405", "20-F", "40-F"]
 
-    def latest_filing(self, ticker: str, form: str = "10-K") -> dict:
-        cik = self.cik_for_ticker(ticker)
+    def latest_filing(self, identifier: str, form: str = "10-K") -> dict:
+        cik, _ = self.resolve_cik(identifier)
         sub = self._get(_SUBMISSIONS.format(cik=cik)).json()
         recent = sub["filings"]["recent"]
         # try the requested form first, then annual-report fallbacks
@@ -121,11 +186,11 @@ class EdgarClient:
                         "primary_doc": recent["primaryDocument"][i],
                         "date": recent["filingDate"][i],
                         "form": want,
-                        "name": sub.get("name", ticker),
+                        "name": sub.get("name", identifier),
                     }
         raise ValueError(
-            f"{ticker} has no annual report (10-K/20-F) on EDGAR — it may be a "
-            f"fund, ETF, or non-reporting entity")
+            f"{identifier} has no annual report (10-K/20-F) on EDGAR — it may be "
+            f"a fund, ETF, or non-reporting entity")
 
     @staticmethod
     def _clean_tokens(text: str) -> str:
@@ -228,12 +293,12 @@ class EdgarClient:
         m = _ITEM.search(page_text[:60])
         return f"Item {m.group(1)}" if m else ""
 
-    def company_filings(self, ticker: str, forms: Optional[list[str]] = None,
+    def company_filings(self, identifier: str, forms: Optional[list[str]] = None,
                         limit: int = 30) -> dict:
         """Company profile + recent filing history from EDGAR — powers the
-        'browse all filings from all companies' view. `forms` filters by type
-        (e.g. ['10-K','10-Q','8-K']); None returns everything."""
-        cik = self.cik_for_ticker(ticker)
+        'browse all filings from all companies' view. `identifier` is a ticker
+        or a CIK; `forms` filters by type (e.g. ['10-K','10-Q']); None = all."""
+        cik, label = self.resolve_cik(identifier)
         sub = self._get(_SUBMISSIONS.format(cik=cik)).json()
         recent = sub["filings"]["recent"]
         descs = recent.get("primaryDocDescription", [""] * len(recent["form"]))
@@ -254,19 +319,19 @@ class EdgarClient:
             if len(filings) >= limit:
                 break
         return {
-            "ticker": ticker.upper(), "cik": cik, "name": sub.get("name", ticker),
+            "ticker": label, "cik": cik, "name": sub.get("name", label),
             "industry": sub.get("sicDescription", ""),
             "tickers": sub.get("tickers", []), "filings": filings,
         }
 
-    def _build(self, ticker: str, meta: dict, max_pages: int) -> Document:
+    def _build(self, label: str, meta: dict, max_pages: int) -> Document:
         url = _ARCHIVE.format(cik=meta["cik"], acc=meta["accession"],
                               doc=meta["primary_doc"])
         html = self._get(url).text
         pages = self._paginate(self._to_text(html), max_pages=max_pages)
         actual = meta["form"]
         doc = build_document_from_pages(
-            doc_id=f"{ticker.upper()}-{actual}-{meta['date']}",
+            doc_id=f"{label.upper()}-{actual}-{meta['date']}",
             title=f"{meta['name']} {actual} ({meta['date']})",
             page_texts=pages, source=url, doc_type=actual, metadata=meta,
         )
@@ -280,20 +345,21 @@ class EdgarClient:
             p.section = last
         return doc
 
-    def fetch(self, ticker: str, form: str = "10-K", max_pages: int = 40) -> Document:
-        return self._build(ticker, self.latest_filing(ticker, form), max_pages)
+    def fetch(self, identifier: str, form: str = "10-K", max_pages: int = 40) -> Document:
+        _, label = self.resolve_cik(identifier)
+        return self._build(label, self.latest_filing(identifier, form), max_pages)
 
-    def fetch_specific(self, ticker: str, accession: str, primary_doc: str,
+    def fetch_specific(self, identifier: str, accession: str, primary_doc: str,
                        form: str, date: str, max_pages: int = 40) -> Document:
         """Ingest one specific filing (by accession) rather than the latest."""
-        cik = self.cik_for_ticker(ticker)
+        cik, label = self.resolve_cik(identifier)
         meta = {"cik": cik, "accession": accession.replace("-", ""),
                 "primary_doc": primary_doc, "form": form, "date": date,
-                "name": self.company_name(ticker)}
-        return self._build(ticker, meta, max_pages)
+                "name": self.company_name(identifier)}
+        return self._build(label, meta, max_pages)
 
-    def company_name(self, ticker: str) -> str:
+    def company_name(self, identifier: str) -> str:
         for c in self._load_companies():
-            if c["ticker"] == ticker.upper():
+            if c["ticker"] == identifier.upper():
                 return c["title"]
-        return ticker.upper()
+        return identifier.upper()

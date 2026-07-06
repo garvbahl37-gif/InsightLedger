@@ -3,9 +3,6 @@ from .provider import (
     Provider,
     StubProvider,
     ClaudeProvider,
-    OllamaProvider,
-    HuggingFaceProvider,
-    HFInferenceProvider,
     get_provider,
 )
 
@@ -14,8 +11,5 @@ __all__ = [
     "Provider",
     "StubProvider",
     "ClaudeProvider",
-    "OllamaProvider",
-    "HuggingFaceProvider",
-    "HFInferenceProvider",
     "get_provider",
 ]

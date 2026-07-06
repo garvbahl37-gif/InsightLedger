@@ -37,21 +37,6 @@ def _has(module: str) -> bool:
     return importlib.util.find_spec(module) is not None
 
 
-@lru_cache(maxsize=4)
-def _ollama_reachable(url: str) -> bool:
-    """Quick, cached check whether an Ollama server is up (short timeout so it
-    never blocks startup)."""
-    import socket
-    from urllib.parse import urlparse
-
-    try:
-        p = urlparse(url)
-        with socket.create_connection((p.hostname or "localhost", p.port or 11434), timeout=0.25):
-            return True
-    except Exception:
-        return False
-
-
 @dataclass
 class Settings:
     # Backend selectors
@@ -60,28 +45,10 @@ class Settings:
     llm: str = "auto"
     graph: str = "auto"
 
-    # Claude
+    # Claude (optional — the app runs fully local on the stub without any key)
     anthropic_api_key: str = ""
     llm_model: str = "claude-opus-4-8"
     llm_model_cheap: str = "claude-haiku-4-5-20251001"
-
-    # HuggingFace Inference Providers (serverless — HF hosts the model; only a
-    # FREE HF token is needed, no GPU/RAM/disk locally). Best for deploys.
-    hf_token: str = ""
-    hf_api_model: str = "Qwen/Qwen2.5-7B-Instruct"
-
-    # HuggingFace local open model (in-process transformers — no key, needs compute)
-    hf_model: str = "Qwen/Qwen2.5-1.5B-Instruct"   # or *-0.5B-Instruct for low RAM
-    hf_cache: str = ""            # HF_HOME override (point at a drive with space)
-    hf_device: str = "auto"       # auto | cpu | cuda
-    hf_max_new_tokens: int = 512
-
-    # Ollama (optional local server — only used when IL_LLM=ollama explicitly)
-    ollama_url: str = "http://localhost:11434"
-    ollama_model: str = "qwen2.5:7b"
-
-    # Local semantic text embedder (fully local, no API): a small HF encoder
-    embed_model: str = "sentence-transformers/all-MiniLM-L6-v2"
 
     # ColQwen (visual page embeddings)
     colqwen_model: str = "vidore/colqwen2-v1.0"
@@ -109,12 +76,10 @@ class Settings:
     def resolve_embedder(self) -> str:
         if self.embedder != "auto":
             return self.embedder
-        # visual ColQwen if the full stack is present; else a small local HF text
-        # encoder (real semantic retrieval, no API); else the dependency-free stub.
+        # visual ColQwen if the full stack is present; else the dependency-free
+        # stub (hash multi-vector + MaxSim). No API either way.
         if _has("torch") and _has("transformers") and _has("colpali_engine"):
             return "colqwen"
-        if _has("torch") and _has("transformers"):
-            return "hf"
         return "stub"
 
     def resolve_vector_store(self) -> str:
@@ -125,15 +90,10 @@ class Settings:
     def resolve_llm(self) -> str:
         if self.llm != "auto":
             return self.llm
-        # ladder for a LIVE/deployed app: HF Inference Providers (serverless,
-        # free token, no local GPU) > paid Claude (if keyed) > local HuggingFace
-        # (in-process, needs compute) > stub. Ollama stays available explicitly.
-        if _has("huggingface_hub") and self.hf_token:
-            return "hf-api"
+        # fully local by default: deterministic grounded stub. Opt into Claude
+        # for production-grade generation by setting ANTHROPIC_API_KEY.
         if _has("anthropic") and self.anthropic_api_key:
             return "claude"
-        if _has("transformers") and _has("torch"):
-            return "hf"
         return "stub"
 
     def resolve_graph(self) -> str:
@@ -191,15 +151,6 @@ def get_settings() -> Settings:
         anthropic_api_key=_env("ANTHROPIC_API_KEY", ""),
         llm_model=_env("IL_LLM_MODEL", "claude-opus-4-8"),
         llm_model_cheap=_env("IL_LLM_MODEL_CHEAP", "claude-haiku-4-5-20251001"),
-        hf_token=_env("HF_TOKEN", _env("HUGGINGFACEHUB_API_TOKEN", "")),
-        hf_api_model=_env("IL_HF_API_MODEL", "Qwen/Qwen2.5-7B-Instruct"),
-        embed_model=_env("IL_EMBED_MODEL", "sentence-transformers/all-MiniLM-L6-v2"),
-        hf_model=_env("IL_HF_MODEL", "Qwen/Qwen2.5-1.5B-Instruct"),
-        hf_cache=_env("IL_HF_CACHE", ""),
-        hf_device=_env("IL_HF_DEVICE", "auto"),
-        hf_max_new_tokens=int(_env("IL_HF_MAX_NEW_TOKENS", "512")),
-        ollama_url=_env("IL_OLLAMA_URL", "http://localhost:11434"),
-        ollama_model=_env("IL_OLLAMA_MODEL", "qwen2.5:7b"),
         colqwen_model=_env("IL_COLQWEN_MODEL", "vidore/colqwen2-v1.0"),
         device=_env("IL_DEVICE", "auto"),
         qdrant_url=_env("QDRANT_URL", "http://localhost:6333"),
