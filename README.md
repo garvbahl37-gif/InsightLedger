@@ -254,7 +254,11 @@ splits the two for speed:
 
 `vercel.json` rewrites the API paths from the Vercel domain to the Render
 service, so the frontend keeps using relative URLs and there is no CORS setup.
-Both redeploy automatically on push to `main`.
+
+Vercel redeploys automatically on push to `main`. The Render service was
+created through the API rather than the dashboard, so it has no GitHub webhook
+and does **not** auto-deploy — redeploy it from the Render dashboard, or
+connect the repo there once to turn auto-deploy on.
 
 To run the whole thing yourself with no hosting at all:
 
