@@ -3,18 +3,8 @@ import { AnimatePresence, motion } from "framer-motion";
 import { api } from "../api.js";
 import { Icon } from "../icons.jsx";
 
-const GRADS = {
-  AAPL: "linear-gradient(135deg,#8B5CF6,#A855F7)", MSFT: "linear-gradient(135deg,#3b82f6,#6366F1)",
-  NVDA: "linear-gradient(135deg,#22C55E,#16a34a)", TSLA: "linear-gradient(135deg,#EF4444,#f97316)",
-};
-function grad(tk) {
-  if (GRADS[tk]) return GRADS[tk];
-  const p = ["#8B5CF6", "#6366F1", "#A855F7", "#3b82f6", "#22C55E", "#f59e0b"];
-  let h = 0; for (const c of tk) h = (h * 31 + c.charCodeAt(0)) >>> 0;
-  return `linear-gradient(135deg,${p[h % p.length]},${p[(h >> 3) % p.length]})`;
-}
 
-// Premium searchable company combobox over the full EDGAR list.
+// Combobox over the full EDGAR filer list.
 export default function CompanyPicker({ onSelect }) {
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
@@ -53,25 +43,24 @@ export default function CompanyPicker({ onSelect }) {
     <div className="picker" ref={box}>
       <div className="picker-input">
         <span className="ico"><Icon name="search" size={16} /></span>
-        <input value={q} placeholder="Search SEC company…" spellCheck={false} autoComplete="off"
+        <input value={q} placeholder="Search EDGAR…" spellCheck={false} autoComplete="off"
           onChange={(e) => setQ(e.target.value)} onFocus={() => setOpen(true)} onKeyDown={onKey} />
-        {loading ? <span className="spin d sm" /> : <span className="kbd">↵</span>}
+        {loading && <span className="spin" />}
       </div>
       <AnimatePresence>
         {open && (
           <motion.div className="picker-menu"
             initial={{ opacity: 0, y: -8, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -8, scale: 0.98 }} transition={{ duration: 0.16, ease: [0.22, 0.61, 0.36, 1] }}>
-            <div className="menu-label">{q ? "Results" : "Popular companies"}</div>
-            {opts.length === 0 && !loading && <div className="picker-hint">No matches — try NVDA or a company name.</div>}
+            <div className="menu-label">{q ? "Matches" : "Common filers"}</div>
+            {opts.length === 0 && !loading && <div className="picker-hint">No filer matches that. Try a ticker, like NVDA.</div>}
             {opts.map((o, i) => (
-              <div key={o.ticker} className={"opt" + (i === hl ? " hl" : "")}
+              <button type="button" key={o.ticker} className={"opt" + (i === hl ? " hl" : "")}
                 onMouseEnter={() => setHl(i)} onClick={() => choose(o)}>
-                <span className="otk" style={{ background: grad(o.ticker) }}>{o.ticker}</span>
+                <span className="otk">{o.ticker}</span>
                 <span className="otitle">{titleCase(o.title)}</span>
-                {o.indexed ? <span className="obadge">indexed</span>
-                  : <span className="ico" style={{ color: "var(--muted)" }}><Icon name="chev" size={15} /></span>}
-              </div>
+                {o.indexed && <span className="obadge">indexed</span>}
+              </button>
             ))}
           </motion.div>
         )}

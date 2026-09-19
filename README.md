@@ -24,18 +24,22 @@ router ─▶ retriever ─▶ extractor ─▶ verifier ─┐(low confidence)
 
 ## Screenshots
 
-_Premium React dashboard, running fully local (no API key) over live SEC filings._
+_Runs fully local (no API key, no GPU) over live SEC filings._
 
-**Research console** — live company corpus, KPIs, and the query console
-![Dashboard](docs/screenshots/01-dashboard.png)
+**Landing** — what the system does, argued with real footnotes to real filings
+![Landing](docs/screenshots/00-landing.png)
 
-**Grounded answer** — inline citations, highlighted evidence regions, confidence gauge, verifier donut, and retrieval chart
+**Console** — the corpus, the question box, and what is currently indexed
+![Console](docs/screenshots/01-dashboard.png)
+
+**Grounded answer** — each sentence carries a footnote to the page region it came
+from, with the quoted source in the margin beside it
 ![Answer](docs/screenshots/02-answer-result.png)
 
-**Company browser** — search **any** of ~1M EDGAR filers (all companies, funds, trusts) and ingest any filing live
+**Company browser** — search any of ~1M EDGAR filers and index any filing live
 ![Company browser](docs/screenshots/03-company-browser.png)
 
-**⌘K command palette** — jump to a filing, ask, or ingest a company
+**⌘K** — jump to a filing, ask a question, or index a company
 ![Command palette](docs/screenshots/04-command-palette.png)
 
 ---

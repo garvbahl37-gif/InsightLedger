@@ -30,10 +30,10 @@ export default function CommandPalette({ open, onClose, filings, examples, onSco
       .forEach((f) => list.push({ group: "Filings", icon: "doc", label: f.company || f.doc_id,
         meta: f.doc_id.split("-")[0], action: () => onScope(f.doc_id) }));
     examples.filter((e) => !ql || e.toLowerCase().includes(ql))
-      .forEach((e) => list.push({ group: "Ask", icon: "spark", label: e, meta: "run", action: () => onAsk(e) }));
-    hits.forEach((h) => list.push({ group: "Ingest live", icon: "plus", label: `${titleCase(h.title)}`,
+      .forEach((e) => list.push({ group: "Ask", icon: "spark", label: e, meta: "ask", action: () => onAsk(e) }));
+    hits.forEach((h) => list.push({ group: "Index from EDGAR", icon: "plus", label: `${titleCase(h.title)}`,
       meta: h.ticker, action: () => onIngest(h.ticker) }));
-    list.push({ group: "Workspace", icon: "moon", label: "Toggle theme", meta: "", action: onToggleTheme });
+    list.push({ group: "View", icon: "moon", label: "Switch theme", meta: "", action: onToggleTheme });
     return list;
   }, [q, filings, examples, hits]); // eslint-disable-line
 
@@ -51,29 +51,29 @@ export default function CommandPalette({ open, onClose, filings, examples, onSco
   return (
     <AnimatePresence>
       {open && (
-        <motion.div className="cmd-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+        <motion.div className="overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
           onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-          <motion.div className="cmd" initial={{ opacity: 0, y: -14, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }}
+          <motion.div className="panel" initial={{ opacity: 0, y: -14, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -14, scale: 0.97 }} transition={{ duration: 0.18, ease: [0.22, 0.61, 0.36, 1] }}>
-            <div className="cmd-input">
-              <Icon name="search" size={19} />
-              <input ref={inputRef} value={q} placeholder="Search filings, ask, or ingest a company…"
+            <div className="panel-search">
+              <Icon name="search" size={17} />
+              <input ref={inputRef} value={q} placeholder="Find a filing, ask a question, or index a company…"
                 onChange={(e) => setQ(e.target.value)} onKeyDown={onKey} />
               <span className="kbd">ESC</span>
             </div>
-            <div className="cmd-list">
-              {items.length === 0 && <div className="picker-hint">No matches.</div>}
+            <div className="panel-list">
+              {items.length === 0 && <div className="picker-hint">Nothing matches that.</div>}
               {items.map((it, i) => {
                 const showGroup = it.group !== lastGroup; lastGroup = it.group;
                 return (
                   <div key={i}>
-                    {showGroup && <div className="cmd-sec">{it.group}</div>}
-                    <div className={"cmd-item" + (i === hl ? " hl" : "")}
+                    {showGroup && <div className="panel-sec">{it.group}</div>}
+                    <button type="button" className={"panel-item" + (i === hl ? " hl" : "")}
                       onMouseEnter={() => setHl(i)} onClick={() => run(it)}>
-                      <span className="ci"><Icon name={it.icon} size={16} /></span>
+                      <span className="pi"><Icon name={it.icon} size={16} /></span>
                       <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.label}</span>
-                      {it.meta && <span className="cmeta">{it.meta}</span>}
-                    </div>
+                      {it.meta && <span className="pmeta">{it.meta}</span>}
+                    </button>
                   </div>
                 );
               })}

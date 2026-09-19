@@ -12,11 +12,6 @@ const FORM_SETS = {
   Proxy: "DEF 14A",
   All: "",
 };
-const GRAD = (tk) => {
-  const p = ["#8B5CF6", "#6366F1", "#A855F7", "#3b82f6", "#22C55E", "#f59e0b"];
-  let h = 0; for (const c of tk) h = (h * 31 + c.charCodeAt(0)) >>> 0;
-  return `linear-gradient(135deg,${p[h % p.length]},${p[(h >> 3) % p.length]})`;
-};
 
 export default function CompanyModal({ ticker, onClose, onIngested, onScope }) {
   const [data, setData] = useState(null);
@@ -47,54 +42,52 @@ export default function CompanyModal({ ticker, onClose, onIngested, onScope }) {
   return (
     <AnimatePresence>
       {ticker && (
-        <motion.div className="cmd-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+        <motion.div className="overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
           onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-          <motion.div className="cmodal" initial={{ opacity: 0, y: -16, scale: 0.97 }}
+          <motion.div className="panel panel-wide" initial={{ opacity: 0, y: -16, scale: 0.97 }}
             animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -16, scale: 0.97 }}
             transition={{ duration: 0.18, ease: [0.22, 0.61, 0.36, 1] }}>
-            <div className="cmodal-head">
-              <span className="otk" style={{ background: GRAD(ticker), minWidth: 52 }}>{ticker}</span>
+            <div className="panel-head">
+              <span className="ptk">{ticker}</span>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div className="cmodal-name">{data ? titleCase(data.name) : ticker}</div>
-                <div className="cmodal-sub">
+                <div className="pname">{data ? titleCase(data.name) : ticker}</div>
+                <div className="psub">
                   {data ? `${data.industry || "—"} · CIK ${data.cik}` : "Loading filings from EDGAR…"}
                 </div>
               </div>
-              <button className="icon-btn" onClick={onClose}><Icon name="x" size={16} /></button>
+              <button className="iconbtn" onClick={onClose}><Icon name="x" size={16} /></button>
             </div>
 
-            <div className="cmodal-tabs">
+            <div className="tabs">
               {Object.keys(FORM_SETS).map((k) => (
-                <button key={k} className={"ctab" + (tab === k ? " on" : "")} onClick={() => setTab(k)}>{k}</button>
+                <button key={k} className={"tab" + (tab === k ? " on" : "")} onClick={() => setTab(k)}>{k}</button>
               ))}
             </div>
 
-            <div className="cmodal-list">
-              {err && <div className="picker-hint" style={{ color: "var(--error)" }}>{err}</div>}
-              {!data && !err && <div className="picker-hint"><span className="spin d sm" style={{ display: "inline-block" }} /> loading…</div>}
-              {data && data.filings.length === 0 && <div className="picker-hint">No {tab.toLowerCase()} filings found.</div>}
+            <div className="filing-list">
+              {err && <div className="picker-hint" style={{ color: "var(--flag)" }}>{err}</div>}
+              {!data && !err && <div className="picker-hint">Loading…</div>}
+              {data && data.filings.length === 0 && <div className="picker-hint">No {tab.toLowerCase()} filings on file.</div>}
               {data && data.filings.map((f) => (
-                <div className="frow" key={f.accession}>
-                  <span className="fform">{f.form}</span>
-                  <div className="finfo">
-                    <div className="fdate">{f.date}</div>
-                    {f.description && <div className="fdesc">{f.description}</div>}
+                <div className="filing" key={f.accession}>
+                  <span className="ff">{f.form}</span>
+                  <div style={{ minWidth: 0 }}>
+                    <div className="fd num">{f.date}</div>
+                    {f.description && f.description !== f.form && (
+                      <div className="fx">{f.description}</div>
+                    )}
                   </div>
                   {f.indexed ? (
-                    <button className="frun" onClick={() => { onScope?.(f.doc_id); onClose(); }}>
-                      <Icon name="spark" size={13} /> Ask
-                    </button>
+                    <button className="fbtn" onClick={() => { onScope?.(f.doc_id); onClose(); }}>Ask this</button>
                   ) : busy === f.accession ? (
-                    <span className="spin d sm" />
+                    <span className="spin" />
                   ) : (
-                    <button className="fingest" onClick={() => ingest(f)}>
-                      <Icon name="plus" size={13} /> Ingest
-                    </button>
+                    <button className="fbtn" onClick={() => ingest(f)}>Index</button>
                   )}
                 </div>
               ))}
             </div>
-            <div className="cmodal-foot">Live from SEC EDGAR · ingest any filing to query it</div>
+            <div className="panel-foot">Filings come straight from SEC EDGAR. Index one to start asking about it.</div>
           </motion.div>
         </motion.div>
       )}

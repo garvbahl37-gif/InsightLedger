@@ -64,9 +64,27 @@ if _ASSETS.is_dir():
     app.mount("/assets", StaticFiles(directory=str(_ASSETS)), name="assets")
 
 
+def _page() -> str:
+    return (_STATIC / "index.html").read_text(encoding="utf-8")
+
+
+@app.get("/favicon.svg")
+def favicon():
+    from fastapi.responses import FileResponse
+    return FileResponse(_STATIC / "favicon.svg", media_type="image/svg+xml")
+
+
 @app.get("/", response_class=HTMLResponse)
 def index() -> str:
-    return (_STATIC / "index.html").read_text(encoding="utf-8")
+    """Landing page (client-side routed)."""
+    return _page()
+
+
+@app.get("/app", response_class=HTMLResponse)
+@app.get("/app/{_rest:path}", response_class=HTMLResponse)
+def console(_rest: str = "") -> str:
+    """Research console. Same SPA shell — the client routes on pathname."""
+    return _page()
 
 
 @app.get("/health")
