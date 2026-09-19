@@ -3,6 +3,14 @@
 **Visual-first document intelligence — multi-agent visual-RAG over financial &
 compliance filings, with region-level citations and an eval-gated pipeline.**
 
+**[Live demo](https://insightledger-opal.vercel.app)** · [console](https://insightledger-opal.vercel.app/app)
+· [API](https://insightledger-edib.onrender.com/health)
+
+_The demo runs on free tiers: the frontend is on Vercel's CDN, and the Python
+service sleeps when idle — so the first question after a quiet spell takes ~60s
+while it wakes and re-ingests its seed filings from EDGAR. Every one after that
+is fast._
+
 Most "RAG projects" chunk text → embed → cosine → stuff into an LLM. Real
 financial documents lose 30–60% of their meaning that way: merged table cells
 collapse, chart axes vanish, stamps and signatures disappear. InsightLedger
@@ -232,3 +240,24 @@ Qdrant · Anthropic Claude · SEC EDGAR · pytest
 ## License
 
 MIT
+
+## Deployment
+
+The app is one FastAPI service that also serves the built React frontend, so
+`make serve` (or the Dockerfile) is enough to run everything. The hosted demo
+splits the two for speed:
+
+| Piece | Host | Notes |
+|---|---|---|
+| Frontend (`/`, `/app`) | Vercel | Static build on the CDN; loads instantly |
+| API (`/query`, `/documents`, …) | Render | Docker, free plan, sleeps when idle |
+
+`vercel.json` rewrites the API paths from the Vercel domain to the Render
+service, so the frontend keeps using relative URLs and there is no CORS setup.
+Both redeploy automatically on push to `main`.
+
+To run the whole thing yourself with no hosting at all:
+
+```bash
+make install && make serve   # http://localhost:8000
+```

@@ -22,3 +22,6 @@ frontend/dist/
 frontend/.vite/
 # built React assets ARE committed (src/insightledger/api/static) so the app
 # runs with just Python — no node required to serve.
+# vercel (frontend CDN deploy)
+.vercel/
+.env*.local
