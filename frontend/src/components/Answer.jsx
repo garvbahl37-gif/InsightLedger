@@ -20,6 +20,9 @@ export default function Answer({ answer, registry }) {
   // verifier's finding can sit on the sentence instead of in a second list
   // that repeats the whole answer back.
   const claimByText = new Map(claims.map((c) => [bareText(c.text), c]));
+  // The backend gates on 0.6; below it the pages matched the question only
+  // weakly, and saying so is the whole point of the product.
+  const weak = !abstained && (answer.confidence || 0) < 0.6;
 
   const focusNote = (key) => {
     setActive(key);
@@ -77,7 +80,16 @@ export default function Answer({ answer, registry }) {
               written. Try widening the scope or ingesting a filing that covers it.
             </div>
           ) : (
-            <div className="prose">{lines.map(renderLine)}</div>
+            <>
+              {weak && (
+                <div className="caution">
+                  <b>Weak match</b>
+                  These pages only partly cover what you asked. Read the quotes below before
+                  relying on this — the filing may not discuss it, or may use different wording.
+                </div>
+              )}
+              <div className="prose">{lines.map(renderLine)}</div>
+            </>
           )}
 
           {claims.length > 0 && (
@@ -102,7 +114,10 @@ export default function Answer({ answer, registry }) {
             ) : (
               <p className="vclear">
                 <span aria-hidden>✓</span>
-                All {claims.length} claims grounded against the pages they cite. Nothing was discarded.
+                {weak
+                  ? `All ${claims.length} claims were traced to the page they cite, but only partly
+                     match what you asked — grounding is not the same as answering.`
+                  : `All ${claims.length} claims grounded against the pages they cite. Nothing was discarded.`}
               </p>
             )
           )}

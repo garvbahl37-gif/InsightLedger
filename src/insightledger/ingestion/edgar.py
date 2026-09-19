@@ -236,8 +236,15 @@ class EdgarClient:
         return (int(m.group(1)), m.group(2)) if m else (99, "")
 
     @classmethod
-    def _paginate(cls, text: str, max_pages: int = 40,
+    def _paginate(cls, text: str, max_pages: int = 150,
                   chars_per_page: int = 4000) -> list[str]:
+        """Slice a filing into fixed-size pages.
+
+        The cap has to clear a whole 10-K. At 40 pages (160K chars) NVIDIA's
+        filing stopped inside Item 1A, so its income statement was never
+        indexed and every revenue question was unanswerable while still
+        looking answerable. 150 pages covers Items 1 through 16.
+        """
         """Section-aware pagination.
 
         A 10-K mentions each 'Item N.' at least twice — once in the table of
@@ -345,12 +352,12 @@ class EdgarClient:
             p.section = last
         return doc
 
-    def fetch(self, identifier: str, form: str = "10-K", max_pages: int = 40) -> Document:
+    def fetch(self, identifier: str, form: str = "10-K", max_pages: int = 150) -> Document:
         _, label = self.resolve_cik(identifier)
         return self._build(label, self.latest_filing(identifier, form), max_pages)
 
     def fetch_specific(self, identifier: str, accession: str, primary_doc: str,
-                       form: str, date: str, max_pages: int = 40) -> Document:
+                       form: str, date: str, max_pages: int = 150) -> Document:
         """Ingest one specific filing (by accession) rather than the latest."""
         cik, label = self.resolve_cik(identifier)
         meta = {"cik": cik, "accession": accession.replace("-", ""),

@@ -228,6 +228,13 @@ a{color:var(--accent)}
   border:0;transition:color .12s}
 .fn:hover,.fn.on{color:var(--flag)}
 
+/* a weak-but-not-empty match: say so instead of letting the prose imply
+   more confidence than the verifier actually found */
+.caution{border-left:3px solid var(--flag);background:var(--flag-soft);padding:12px 15px;
+  border-radius:0 var(--r) var(--r) 0;font-size:var(--t-sm);line-height:1.6;
+  color:var(--ink-2);margin-bottom:18px;max-width:68ch}
+.caution b{display:block;font-weight:600;color:var(--flag);margin-bottom:3px}
+
 /* abstention */
 .abstain{border-left:3px solid var(--flag);background:var(--flag-soft);padding:14px 16px;
   border-radius:0 var(--r) var(--r) 0;color:var(--ink);font-family:var(--serif);line-height:1.6}

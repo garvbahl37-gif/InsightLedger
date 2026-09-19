@@ -77,7 +77,7 @@ class Orchestrator:
             confs: list[float] = []
             for claim in state["claims"]:
                 ok, conf, note = self.provider.verify_claim(
-                    claim, state["retrieved"], state["meter"])
+                    state["question"], claim, state["retrieved"], state["meter"])
                 claim.verified = ok
                 claim.confidence = conf
                 claim.verifier_note = note

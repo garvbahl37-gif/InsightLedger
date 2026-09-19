@@ -5,7 +5,7 @@ call, so that the real (Claude) and stub backends implement one clean interface:
 
     assess_difficulty(question)          -> Difficulty      (router)
     extract_claims(question, pages)      -> list[Claim]     (extractor / VLM read)
-    verify_claim(claim, page)            -> (ok, conf, note)(verifier)
+    verify_claim(question, claim, page)  -> (ok, conf, note)(verifier)
     synthesize(question, claims)         -> str             (synthesizer)
 
 The stub backend is deterministic and *grounded*: it locates answer text inside
@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Optional, Protocol
 
 from ..config import Settings, get_settings
@@ -66,6 +67,123 @@ def _score_line(line: str, kws: list[str]) -> float:
     return hits + num_bonus
 
 
+# How much of the question a claim must carry to count as answering it.
+MIN_RELEVANCE = 0.34
+
+
+
+@lru_cache(maxsize=64)
+def _doc_page_texts(doc_id: str) -> tuple[str, ...]:
+    """Lowercased page texts for a whole indexed document.
+
+    Cached because the verifier asks for this once per claim, and a document's
+    pages do not change once it has been ingested.
+    """
+    try:
+        from ..knowledge import load_registry
+
+        doc = load_registry().get(doc_id)
+        if doc is None:
+            return ()
+        return tuple((p.text or " ".join(r.text for r in p.regions)).lower()
+                     for p in doc.pages)
+    except Exception:
+        return ()
+
+
+@lru_cache(maxsize=64)
+def _doc_entity_terms(doc_id: str) -> frozenset:
+    """Words naming the filer itself, from the document title.
+
+    A company's own name is not a topic inside its own filing: "NVIDIA" appears
+    on nearly every page of NVIDIA's 10-K, so a line matching it tells you
+    nothing about whether it answers the question. The doc_id alone only yields
+    the ticker ("nvda"), which is why the full name used to slip through and
+    turn every NVLink paragraph into evidence.
+    """
+    try:
+        from ..knowledge import load_registry
+
+        doc = load_registry().get(doc_id)
+        title = getattr(doc, "title", "") if doc is not None else ""
+    except Exception:
+        title = ""
+    return frozenset(_keywords(title.replace("-", " "))) if title else frozenset()
+
+
+def _page_frequency(term: str, pages: list[RetrievedPage]) -> float:
+    """Share of pages containing `term`, measured over the WHOLE filings the
+    retrieved pages came from.
+
+    Measuring over just the retrieved subset makes this unstable: the graph
+    widens top_k on a retry, which changed the page count and could flip a
+    background term into a topical one mid-run. The full document is a fixed
+    denominator.
+    """
+    corpus: list[str] = []
+    for doc_id in {p.doc_id for p in pages}:
+        corpus.extend(_doc_page_texts(doc_id))
+    if not corpus:  # document not in the registry (tests, ad-hoc pages)
+        corpus = [(p.text or " ".join(r.text for r in p.regions)).lower() for p in pages]
+    if not corpus:
+        return 0.0
+    return sum(1 for c in corpus if term in c) / len(corpus)
+
+
+@dataclass
+class _Focus:
+    """What the question is actually asking about, weighted by how much each
+    term discriminates within the pages we retrieved.
+
+    Two different judgements come out of this, and keeping them apart is the
+    whole point:
+
+    * Terms *absent* from the corpus say the filing may not cover the question
+      — an answerability signal. They must not be charged against individual
+      claims, or a correct answer phrased differently from the question ("third
+      quarter" for "Q3") scores near zero.
+    * Terms *present but everywhere* are background. A line matching only those
+      is not evidence, which is how a cover page reading "ACME ROBOTICS
+      CORPORATION" came to be offered as a headcount figure.
+    """
+    weights: dict[str, float]
+    freqs: dict[str, float]
+
+    @property
+    def present(self) -> dict[str, float]:
+        return {k: w for k, w in self.weights.items() if self.freqs.get(k, 0.0) > 0.0}
+
+    @property
+    def answerable(self) -> bool:
+        """False when nothing the question is about appears in these pages at
+        all — the filing simply does not cover it."""
+        if not self.weights:
+            return True          # nothing specific asked; fall back to retrieval order
+        return bool(self.present)
+
+    def relevance(self, text: str) -> float:
+        """Share of the question's *findable* information this text carries."""
+        pres = self.present
+        if not self.weights:
+            return 1.0
+        if not pres:
+            return 0.0
+        total = sum(pres.values())
+        if total <= 0:
+            return 0.0
+        low = text.lower()
+        return sum(w for k, w in pres.items() if k in low) / total
+
+
+def _focus(question: str, pages: list[RetrievedPage]) -> _Focus:
+    weights, freqs = {}, {}
+    for k in StubProvider._focus_keywords(question, pages):
+        f = _page_frequency(k, pages)
+        freqs[k] = f
+        weights[k] = 1.0 - min(0.9, f)
+    return _Focus(weights=weights, freqs=freqs)
+
+
 @dataclass
 class LLMResult:
     text: str
@@ -80,7 +198,7 @@ class Provider(Protocol):
     def assess_difficulty(self, question: str) -> Difficulty: ...
     def extract_claims(self, question: str, pages: list[RetrievedPage],
                        meter: CostMeter) -> list[Claim]: ...
-    def verify_claim(self, claim: Claim, pages: list[RetrievedPage],
+    def verify_claim(self, question: str, claim: Claim, pages: list[RetrievedPage],
                      meter: CostMeter) -> tuple[bool, float, str]: ...
     def synthesize(self, question: str, claims: list[Claim],
                    meter: CostMeter) -> tuple[str, str]: ...  # (text, model_used)
@@ -124,6 +242,7 @@ class StubProvider:
         entity = set()
         for p in pages:
             entity.update(_keywords(p.doc_id.replace("-", " ")))
+            entity.update(_doc_entity_terms(p.doc_id))
         focus = set()
         for k in _keywords(question):
             if k in _GENERIC_FINANCE or _YEAR.match(k) or k.isdigit():
@@ -136,14 +255,21 @@ class StubProvider:
     def extract_claims(self, question: str, pages: list[RetrievedPage],
                        meter: CostMeter) -> list[Claim]:
         kws = _keywords(question)
-        focus = self._focus_keywords(question, pages)
+        focus = _focus(question, pages)
+        if not focus.answerable:
+            # Nothing the question is actually about appears in these pages.
+            meter.add("stub", tokens_in=200, tokens_out=0)
+            return []
         claims: list[Claim] = []
         seen: set[str] = set()
         for page in pages:
             corpus = page.text or " ".join(r.text for r in page.regions)
             for line in _sentences(corpus):
-                # keep only lines that hit a CONTENT (focus) keyword
-                if not any(k in line.lower() for k in focus):
+                # Keep only lines that carry enough of what was actually asked.
+                # Hitting one background term (the company's own name) is not
+                # evidence of anything.
+                rel = focus.relevance(line)
+                if rel < MIN_RELEVANCE:
                     continue
                 sc = _score_line(line, kws)
                 if sc < 1.0:
@@ -165,13 +291,13 @@ class StubProvider:
                         doc_id=page.doc_id, page_number=page.page_number,
                         bbox=bbox, region_id=region_id, snippet=line[:240],
                     )],
-                    confidence=min(1.0, 0.5 + 0.15 * sc),
+                    confidence=round(rel, 3),
                 ))
         claims.sort(key=lambda c: c.confidence, reverse=True)
         meter.add("stub", tokens_in=200, tokens_out=80)
         return claims[:6]
 
-    def verify_claim(self, claim: Claim, pages: list[RetrievedPage],
+    def verify_claim(self, question: str, claim: Claim, pages: list[RetrievedPage],
                      meter: CostMeter) -> tuple[bool, float, str]:
         meter.add("stub", tokens_in=120, tokens_out=20)
         if not claim.citations:
@@ -188,10 +314,20 @@ class StubProvider:
         if not kws:
             return False, 0.2, "empty claim"
         present = sum(1 for k in kws if k in corpus) / len(kws)
-        ok = present >= 0.7
-        conf = round(present, 3)
-        note = "grounded" if ok else f"only {present:.0%} of claim tokens on cited page"
-        return ok, conf, note
+        if present < 0.7:
+            return False, round(present, 3), f"only {present:.0%} of claim tokens on cited page"
+        # Being printed on the page is necessary but not sufficient: the claims
+        # are lifted verbatim off that page, so token overlap alone is
+        # tautological and would score 1.00 for anything. What the verifier is
+        # really for is whether the claim answers the question that was asked.
+        focus = _focus(question, pages)
+        rel = focus.relevance(claim.text)
+        conf = round(present * rel, 3)
+        if not focus.answerable:
+            return False, conf, "the pages do not cover what the question asks"
+        if rel < MIN_RELEVANCE:
+            return False, conf, f"on the cited page but only {rel:.0%} responsive to the question"
+        return True, conf, "grounded and responsive"
 
     def synthesize(self, question: str, claims: list[Claim],
                    meter: CostMeter) -> tuple[str, str]:
@@ -303,7 +439,7 @@ class ClaudeProvider:
                         cit.bbox = r.bbox
         return claims
 
-    def verify_claim(self, claim: Claim, pages: list[RetrievedPage],
+    def verify_claim(self, question: str, claim: Claim, pages: list[RetrievedPage],
                      meter: CostMeter) -> tuple[bool, float, str]:
         cit = claim.citations[0] if claim.citations else None
         if not cit:
@@ -312,12 +448,15 @@ class ClaudeProvider:
                      and p.page_number == cit.page_number), None)
         images = [page.image_path] if page and page.image_path else []
         system = (
-            "You are a strict verifier. Decide whether the claim is directly "
-            "supported by the cited page. Return JSON "
+            "You are a strict verifier. Decide whether the claim is BOTH directly "
+            "supported by the cited page AND responsive to the question asked. A "
+            "true statement copied from the page that does not address the "
+            "question is not supported. Return JSON "
             '{"supported":bool,"confidence":0..1,"note":str}. Default to '
             "supported=false when uncertain."
         )
-        user = (f"Claim: {claim.text}\nCited: {cit.doc_id} p.{cit.page_number}\n"
+        user = (f"Question: {question}\nClaim: {claim.text}\n"
+                f"Cited: {cit.doc_id} p.{cit.page_number}\n"
                 f"Page text: {(page.text[:1500] if page else '')}\nReturn JSON only.")
         res = self._call(system, user, self.s.llm_model, images, meter, max_tokens=300)
         data = self._json(res.text) or {}
